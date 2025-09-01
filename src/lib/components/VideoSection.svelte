@@ -1,28 +1,30 @@
 <script>
   import { onMount } from 'svelte';
-  import { getVideos, getVideoThumbnail, getVideoEmbedUrl, getVideoPlatform } from '$lib/videos.js';
-  import VideoSkeleton from './VideoSkeleton.svelte';
+  import { getVideos, getVideosByType, getVideoStats, detectVideoType } from '$lib/videos.js';
 
   export let websiteId;
   export let title = "Video Section";
-  export let description = "Tonton video menarik dari kami";
-  export let maxVideos = 6;
+  export let description = "Kelola video YouTube dan TikTok";
+  export let maxVideos = 50; // Lebih banyak untuk table
 
   let videos = [];
+  let allVideos = [];
   let loading = true;
   let error = null;
-  let selectedVideo = null;
+  let selectedFilter = 'all';
+  let videoStats = { total: 0, youtube: 0, tiktok: 0 };
 
   onMount(async () => {
     await loadVideos();
+    await loadStats();
   });
 
   async function loadVideos() {
     try {
       loading = true;
       error = null;
-      videos = await getVideos(websiteId);
-      videos = videos.slice(0, maxVideos); // Limit videos
+      allVideos = await getVideos(websiteId);
+      filterVideos();
     } catch (err) {
       console.error('Error loading videos:', err);
       error = 'Gagal memuat video';
@@ -31,142 +33,305 @@
     }
   }
 
-  function openVideo(video) {
-    selectedVideo = video;
-  }
-
-  function closeVideo() {
-    selectedVideo = null;
-  }
-
-  function handleKeydown(event) {
-    if (event.key === 'Escape') {
-      closeVideo();
+  async function loadStats() {
+    try {
+      videoStats = await getVideoStats(websiteId);
+    } catch (err) {
+      console.error('Error loading stats:', err);
     }
+  }
+
+  function filterVideos() {
+    if (selectedFilter === 'all') {
+      videos = allVideos.slice(0, maxVideos);
+    } else {
+      videos = allVideos
+        .filter(video => (video.video_type || detectVideoType(video.url)) === selectedFilter)
+        .slice(0, maxVideos);
+    }
+  }
+
+  function handleFilterChange(filter) {
+    selectedFilter = filter;
+    filterVideos();
+  }
+
+  function formatDate(dateString) {
+    return new Date(dateString).toLocaleDateString('id-ID', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  }
+
+  function getPlatformBadge(video) {
+    const type = video.video_type || detectVideoType(video.url);
+    switch (type) {
+      case 'youtube':
+        return { name: 'YouTube', color: 'bg-red-100 text-red-800' };
+      case 'tiktok':
+        return { name: 'TikTok', color: 'bg-gray-100 text-gray-800' };
+      default:
+        return { name: 'Video', color: 'bg-blue-100 text-blue-800' };
+    }
+  }
+
+  function openVideoInNewTab(url) {
+    window.open(url, '_blank');
   }
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<section class="py-8 bg-gray-50 min-h-screen">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <!-- Section Header -->
+    <div class="mb-8">
+      <h2 class="text-3xl font-bold text-gray-900 mb-4">{title}</h2>
+      {#if description}
+        <p class="text-lg text-gray-600">{description}</p>
+      {/if}
+    </div>
 
-{#if videos.length > 0}
-  <section class="py-16 bg-gray-50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <!-- Section Header -->
-      <div class="text-center mb-12">
-        <h2 class="text-3xl font-bold text-gray-900 mb-4">{title}</h2>
-        {#if description}
-          <p class="text-lg text-gray-600 max-w-2xl mx-auto">{description}</p>
-        {/if}
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex items-center">
+          <div class="flex-shrink-0">
+            <svg class="h-8 w-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div class="ml-5 w-0 flex-1">
+            <dl>
+              <dt class="text-sm font-medium text-gray-500 truncate">Total Videos</dt>
+              <dd class="text-3xl font-bold text-gray-900">{videoStats.total}</dd>
+            </dl>
+          </div>
+        </div>
       </div>
 
-      <!-- Loading State -->
-      {#if loading}
-        <VideoSkeleton count={maxVideos} />
-      {:else if error}
-        <!-- Error State -->
-        <div class="text-center py-12">
-          <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex items-center">
+          <div class="flex-shrink-0">
+            <div class="h-8 w-8 bg-red-100 rounded-lg flex items-center justify-center">
+              <svg class="h-5 w-5 text-red-600" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+            </div>
+          </div>
+          <div class="ml-5 w-0 flex-1">
+            <dl>
+              <dt class="text-sm font-medium text-gray-500 truncate">YouTube</dt>
+              <dd class="text-3xl font-bold text-gray-900">{videoStats.youtube}</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex items-center">
+          <div class="flex-shrink-0">
+            <div class="h-8 w-8 bg-gray-100 rounded-lg flex items-center justify-center">
+              <svg class="h-5 w-5 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M19.321 5.562a5.124 5.124 0 01-.443-.258 6.228 6.228 0 01-1.137-.966c-.849-.849-1.302-2.003-1.302-3.338h-3.517v14.717c0 2.748-2.156 4.99-4.823 4.99a4.831 4.831 0 01-4.823-4.99c0-2.748 2.156-4.99 4.823-4.99.267 0 .53.023.787.067V7.257c-.254-.036-.513-.054-.787-.054C3.651 7.203 0 10.998 0 15.717S3.651 24.23 8.099 24.23s8.099-3.795 8.099-8.513V8.434a9.637 9.637 0 005.123 1.474v-3.517c-.711 0-1.377-.192-1.95-.532-.287-.17-.547-.375-.772-.616-.225-.24-.413-.515-.556-.821z"/>
+              </svg>
+            </div>
+          </div>
+          <div class="ml-5 w-0 flex-1">
+            <dl>
+              <dt class="text-sm font-medium text-gray-500 truncate">TikTok</dt>
+              <dd class="text-3xl font-bold text-gray-900">{videoStats.tiktok}</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex items-center">
+          <div class="flex-shrink-0">
+            <svg class="h-8 w-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div class="ml-5 w-0 flex-1">
+            <dl>
+              <dt class="text-sm font-medium text-gray-500 truncate">Aktif</dt>
+              <dd class="text-3xl font-bold text-gray-900">{videos.filter(v => v.is_active).length}</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="bg-white rounded-lg shadow mb-6">
+      <div class="border-b border-gray-200">
+        <nav class="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+          <button
+            on:click={() => handleFilterChange('all')}
+            class="border-b-2 py-4 px-1 text-sm font-medium transition-colors duration-200
+              {selectedFilter === 'all' 
+                ? 'border-blue-500 text-blue-600' 
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}"
+          >
+            Semua ({videoStats.total})
+          </button>
+          
+          <button
+            on:click={() => handleFilterChange('youtube')}
+            class="border-b-2 py-4 px-1 text-sm font-medium transition-colors duration-200
+              {selectedFilter === 'youtube' 
+                ? 'border-red-500 text-red-600' 
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}"
+          >
+            YouTube ({videoStats.youtube})
+          </button>
+          
+          <button
+            on:click={() => handleFilterChange('tiktok')}
+            class="border-b-2 py-4 px-1 text-sm font-medium transition-colors duration-200
+              {selectedFilter === 'tiktok' 
+                ? 'border-gray-500 text-gray-600' 
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}"
+          >
+            TikTok ({videoStats.tiktok})
+          </button>
+        </nav>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    {#if loading}
+      <div class="bg-white rounded-lg shadow">
+        <div class="px-6 py-12 text-center">
+          <svg class="mx-auto h-12 w-12 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p class="mt-4 text-sm text-gray-500">Memuat video...</p>
+        </div>
+      </div>
+    {:else if error}
+      <!-- Error State -->
+      <div class="bg-white rounded-lg shadow">
+        <div class="px-6 py-12 text-center">
+          <svg class="mx-auto h-12 w-12 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <h3 class="mt-2 text-sm font-medium text-gray-900">Gagal memuat video</h3>
           <p class="mt-1 text-sm text-gray-500">{error}</p>
+          <button 
+            on:click={loadVideos}
+            class="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+          >
+            Coba Lagi
+          </button>
         </div>
-      {:else}
-        <!-- Video Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {#each videos as video (video.id)}
-            <div class="bg-white rounded-lg shadow-sm overflow-hidden hover:shadow-md transition-shadow duration-200 cursor-pointer" on:click={() => openVideo(video)}>
-              <!-- Video Thumbnail -->
-              <div class="relative aspect-video bg-gray-100">
-                <img 
-                  src={getVideoThumbnail(video.url)} 
-                  alt={video.title}
-                  class="w-full h-full object-cover"
-                  on:error={(e) => {
-                    e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xNjAgOTBDMTYwIDkwIDE2MCA5MCAxNjAgOTBDMTYwIDkwIDE2MCA5MCAxNjAgOTBaIiBmaWxsPSIjOUI5QkEwIi8+CjxwYXRoIGQ9Ik0xNDAgNzBMMTgwIDEwMEwxNDAgMTMwVjcwWiIgZmlsbD0iIzlCOUJBQCIvPgo8L3N2Zz4K';
-                  }}
-                />
-                <!-- Play Button Overlay -->
-                <div class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-20 hover:bg-opacity-30 transition-all duration-200">
-                  <div class="w-16 h-16 bg-white bg-opacity-90 rounded-full flex items-center justify-center">
-                    <svg class="w-8 h-8 text-gray-800 ml-1" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z"/>
-                    </svg>
+      </div>
+    {:else if videos.length === 0}
+      <!-- Empty State -->
+      <div class="bg-white rounded-lg shadow">
+        <div class="px-6 py-12 text-center">
+          <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          <h3 class="mt-2 text-sm font-medium text-gray-900">Tidak ada video</h3>
+          <p class="mt-1 text-sm text-gray-500">
+            {selectedFilter === 'all' ? 'Belum ada video yang ditambahkan' : 
+             selectedFilter === 'youtube' ? 'Belum ada video YouTube' : 
+             'Belum ada video TikTok'}
+          </p>
+        </div>
+      </div>
+    {:else}
+      <!-- Video Table -->
+      <div class="bg-white rounded-lg shadow overflow-hidden">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Platform</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dibuat</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200">
+            {#each videos as video (video.id)}
+              {@const badge = getPlatformBadge(video)}
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4">
+                  <div class="flex items-start">
+                    <div class="flex-shrink-0 w-20 h-12 bg-gray-100 rounded overflow-hidden">
+                      <div class="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center">
+                        {#if (video.video_type || detectVideoType(video.url)) === 'tiktok'}
+                          <svg class="w-6 h-6 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19.321 5.562a5.124 5.124 0 01-.443-.258 6.228 6.228 0 01-1.137-.966c-.849-.849-1.302-2.003-1.302-3.338h-3.517v14.717c0 2.748-2.156 4.99-4.823 4.99a4.831 4.831 0 01-4.823-4.99c0-2.748 2.156-4.99 4.823-4.99.267 0 .53.023.787.067V7.257c-.254-.036-.513-.054-.787-.054C3.651 7.203 0 10.998 0 15.717S3.651 24.23 8.099 24.23s8.099-3.795 8.099-8.513V8.434a9.637 9.637 0 005.123 1.474v-3.517c-.711 0-1.377-.192-1.95-.532-.287-.17-.547-.375-.772-.616-.225-.24-.413-.515-.556-.821z"/>
+                          </svg>
+                        {:else}
+                          <svg class="w-6 h-6 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z"/>
+                          </svg>
+                        {/if}
+                      </div>
+                    </div>
+                    <div class="ml-4 flex-1">
+                      <div class="text-sm font-medium text-gray-900 line-clamp-2">{video.title}</div>
+                      {#if video.description}
+                        <div class="text-sm text-gray-500 line-clamp-1 mt-1">{video.description}</div>
+                      {/if}
+                    </div>
                   </div>
-                </div>
-                <!-- Platform Badge -->
-                <div class="absolute top-2 right-2">
-                  <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-black bg-opacity-75 text-white">
-                    {getVideoPlatform(video.url)}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {badge.color}">
+                    {badge.name}
                   </span>
-                </div>
-              </div>
-
-              <!-- Video Info -->
-              <div class="p-4">
-                <h3 class="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">{video.title}</h3>
-                {#if video.description}
-                  <p class="text-sm text-gray-600 line-clamp-3">{video.description}</p>
-                {/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </div>
-  </section>
-{/if}
-
-<!-- Video Modal -->
-{#if selectedVideo}
-  <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" on:click={closeVideo}>
-    <div class="relative w-full max-w-4xl" on:click|stopPropagation>
-      <!-- Close Button -->
-      <button
-        on:click={closeVideo}
-        class="absolute -top-12 right-0 text-white hover:text-gray-300 transition-colors duration-200 z-10"
-      >
-        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-
-      <!-- Video Player -->
-      <div class="bg-black rounded-lg overflow-hidden">
-        <div class="aspect-video">
-          <iframe
-            src={getVideoEmbedUrl(selectedVideo.url)}
-            title={selectedVideo.title}
-            class="w-full h-full"
-            frameborder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowfullscreen
-          ></iframe>
-        </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                    {video.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                    {video.is_active ? 'Aktif' : 'Nonaktif'}
+                  </span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {formatDate(video.created_at)}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                  <button
+                    on:click={() => openVideoInNewTab(video.url)}
+                    class="text-blue-600 hover:text-blue-900 mr-4"
+                  >
+                    Lihat
+                  </button>
+                  <a 
+                    href={video.url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    class="text-gray-600 hover:text-gray-900"
+                  >
+                    URL
+                  </a>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
       </div>
-
-      <!-- Video Info -->
-      <div class="mt-4 text-white">
-        <h3 class="text-xl font-semibold mb-2">{selectedVideo.title}</h3>
-        {#if selectedVideo.description}
-          <p class="text-gray-300">{selectedVideo.description}</p>
-        {/if}
-      </div>
-    </div>
+    {/if}
   </div>
-{/if}
+</section>
 
 <style>
-  .line-clamp-2 {
+  .line-clamp-1 {
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
   
-  .line-clamp-3 {
+  .line-clamp-2 {
     display: -webkit-box;
-    -webkit-line-clamp: 3;
+    -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }

@@ -2,6 +2,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { selectedWebsite } from '$lib/stores/websiteStore';
   import { supabase } from '$lib/supabase';
+  import { detectVideoType, isValidVideoUrl } from '$lib/videos.js';
 
   export let editingVideo = null;
 
@@ -11,6 +12,7 @@
     title: '',
     url: '',
     description: '',
+    video_type: 'youtube',
     is_active: true
   };
 
@@ -27,16 +29,38 @@
 
   function updateVideoPreview() {
     if (form.url) {
-      const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-      const match = form.url.match(youtubeRegex);
+      const detectedType = detectVideoType(form.url);
       
-      if (match) {
-        videoPreview = {
-          type: 'youtube',
-          id: match[1],
-          thumbnail: `https://img.youtube.com/vi/${match[1]}/mqdefault.jpg`,
-          embedUrl: `https://www.youtube.com/embed/${match[1]}`
-        };
+      // Auto-update form video_type based on URL if it doesn't match
+      if (form.video_type !== detectedType) {
+        form.video_type = detectedType;
+      }
+
+      if (detectedType === 'youtube') {
+        const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+        const match = form.url.match(youtubeRegex);
+        
+        if (match) {
+          videoPreview = {
+            type: 'youtube',
+            id: match[1],
+            thumbnail: `https://img.youtube.com/vi/${match[1]}/mqdefault.jpg`,
+            embedUrl: `https://www.youtube.com/embed/${match[1]}`
+          };
+        }
+      } else if (detectedType === 'tiktok') {
+        const tiktokRegex = /(?:tiktok\.com\/@[^\/]+\/video\/(\d+)|tiktok\.com\/v\/(\d+)|vm\.tiktok\.com\/([A-Za-z0-9]+))/;
+        const match = form.url.match(tiktokRegex);
+        
+        if (match) {
+          const videoId = match[1] || match[2] || match[3];
+          videoPreview = {
+            type: 'tiktok',
+            id: videoId,
+            embedUrl: `https://www.tiktok.com/embed/v2/${videoId}`,
+            originalUrl: form.url
+          };
+        }
       } else {
         videoPreview = {
           type: 'other',
@@ -59,11 +83,15 @@
       return false;
     }
 
-    // Basic URL validation
-    try {
-      new URL(form.url);
-    } catch {
-      error = 'URL video tidak valid';
+    // Validate URL and video type
+    if (!isValidVideoUrl(form.url, form.video_type)) {
+      if (form.video_type === 'youtube') {
+        error = 'URL YouTube tidak valid. Gunakan format: https://www.youtube.com/watch?v=... atau https://youtu.be/...';
+      } else if (form.video_type === 'tiktok') {
+        error = 'URL TikTok tidak valid. Gunakan format: https://www.tiktok.com/@username/video/... atau https://vm.tiktok.com/...';
+      } else {
+        error = 'URL video tidak valid';
+      }
       return false;
     }
 
@@ -87,6 +115,7 @@
         title: form.title.trim(),
         url: form.url.trim(),
         description: form.description.trim() || null,
+        video_type: form.video_type,
         is_active: form.is_active
       };
 
@@ -183,6 +212,25 @@
         />
       </div>
 
+      <!-- Video Type -->
+      <div>
+        <label for="video_type" class="block text-sm font-medium text-gray-700 mb-2">
+          Platform Video <span class="text-red-500">*</span>
+        </label>
+        <select
+          id="video_type"
+          bind:value={form.video_type}
+          class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          required
+        >
+          <option value="youtube">YouTube</option>
+          <option value="tiktok">TikTok</option>
+        </select>
+        <p class="mt-1 text-sm text-gray-500">
+          Pilih platform video yang sesuai dengan URL
+        </p>
+      </div>
+
       <!-- URL -->
       <div>
         <label for="url" class="block text-sm font-medium text-gray-700 mb-2">
@@ -193,11 +241,17 @@
           type="url"
           bind:value={form.url}
           class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          placeholder="https://www.youtube.com/watch?v=..."
+          placeholder={form.video_type === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://www.tiktok.com/@username/video/...'}
           required
         />
         <p class="mt-1 text-sm text-gray-500">
-          Mendukung YouTube, Vimeo, dan platform video lainnya
+          {#if form.video_type === 'youtube'}
+            Format YouTube: https://www.youtube.com/watch?v=VIDEO_ID atau https://youtu.be/VIDEO_ID
+          {:else if form.video_type === 'tiktok'}
+            Format TikTok: https://www.tiktok.com/@username/video/VIDEO_ID atau https://vm.tiktok.com/SHORT_ID
+          {:else}
+            Masukkan URL video yang valid
+          {/if}
         </p>
       </div>
 
@@ -244,8 +298,32 @@
                 allowfullscreen
               ></iframe>
             </div>
-            <div class="mt-2 text-xs text-gray-500">
+            <div class="mt-2 flex items-center text-xs text-gray-500">
+              <div class="w-4 h-4 bg-red-600 rounded-sm mr-2 flex items-center justify-center">
+                <svg class="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+              </div>
               YouTube Video ID: {videoPreview.id}
+            </div>
+          {:else if videoPreview.type === 'tiktok'}
+            <div class="aspect-[9/16] max-h-96 mx-auto bg-black rounded-lg overflow-hidden">
+              <iframe
+                src={videoPreview.embedUrl}
+                title="TikTok video preview"
+                class="w-full h-full"
+                frameborder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowfullscreen
+              ></iframe>
+            </div>
+            <div class="mt-2 flex items-center text-xs text-gray-500">
+              <div class="w-4 h-4 bg-black rounded-sm mr-2 flex items-center justify-center">
+                <svg class="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M19.321 5.562a5.124 5.124 0 01-.443-.258 6.228 6.228 0 01-1.137-.966c-.849-.849-1.302-2.003-1.302-3.338h-3.517v14.717c0 2.748-2.156 4.99-4.823 4.99a4.831 4.831 0 01-4.823-4.99c0-2.748 2.156-4.99 4.823-4.99.267 0 .53.023.787.067V7.257c-.254-.036-.513-.054-.787-.054C3.651 7.203 0 10.998 0 15.717S3.651 24.23 8.099 24.23s8.099-3.795 8.099-8.513V8.434a9.637 9.637 0 005.123 1.474v-3.517c-.711 0-1.377-.192-1.95-.532-.287-.17-.547-.375-.772-.616-.225-.24-.413-.515-.556-.821z"/>
+                </svg>
+              </div>
+              TikTok Video ID: {videoPreview.id}
             </div>
           {:else}
             <div class="aspect-video bg-gray-200 rounded-lg flex items-center justify-center">

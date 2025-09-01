@@ -62,24 +62,50 @@ export class VideoPerformanceOptimizer {
   }
 
   // Get low quality thumbnail for faster loading
-  getLowQualityThumbnail(url) {
-    const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-    const match = url.match(youtubeRegex);
-    
-    if (match) {
-      return `https://img.youtube.com/vi/${match[1]}/sddefault.jpg`;
+  getLowQualityThumbnail(url, videoType = null) {
+    if (!videoType) {
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        videoType = 'youtube';
+      } else if (url.includes('tiktok.com')) {
+        videoType = 'tiktok';
+      }
+    }
+
+    if (videoType === 'youtube') {
+      const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+      const match = url.match(youtubeRegex);
+      
+      if (match) {
+        return `https://img.youtube.com/vi/${match[1]}/sddefault.jpg`;
+      }
+    } else if (videoType === 'tiktok') {
+      // TikTok doesn't provide thumbnail URLs, use placeholder
+      return '/placeholder-tiktok-low.jpg';
     }
     
     return '/placeholder-video-low.jpg';
   }
 
   // Get high quality thumbnail
-  getHighQualityThumbnail(url) {
-    const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-    const match = url.match(youtubeRegex);
-    
-    if (match) {
-      return `https://img.youtube.com/vi/${match[1]}/maxresdefault.jpg`;
+  getHighQualityThumbnail(url, videoType = null) {
+    if (!videoType) {
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        videoType = 'youtube';
+      } else if (url.includes('tiktok.com')) {
+        videoType = 'tiktok';
+      }
+    }
+
+    if (videoType === 'youtube') {
+      const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+      const match = url.match(youtubeRegex);
+      
+      if (match) {
+        return `https://img.youtube.com/vi/${match[1]}/maxresdefault.jpg`;
+      }
+    } else if (videoType === 'tiktok') {
+      // TikTok doesn't provide thumbnail URLs, use placeholder
+      return '/placeholder-tiktok.jpg';
     }
     
     return '/placeholder-video.jpg';
@@ -99,7 +125,7 @@ export class VideoPerformanceOptimizer {
     if (typeof window === 'undefined') return;
 
     // Preload thumbnail
-    const thumbnailUrl = this.getHighQualityThumbnail(video.url);
+    const thumbnailUrl = this.getHighQualityThumbnail(video.url, video.video_type);
     const thumbnailLink = document.createElement('link');
     thumbnailLink.rel = 'preload';
     thumbnailLink.as = 'image';
@@ -182,9 +208,15 @@ export class VideoPerformanceOptimizer {
 
   // Set optimal video format
   setOptimalVideoFormat(videoElement, videoData) {
-    // For YouTube videos, use iframe with optimized parameters
-    if (videoData.url.includes('youtube.com') || videoData.url.includes('youtu.be')) {
+    const videoType = videoData.video_type || 
+      (videoData.url.includes('youtube.com') || videoData.url.includes('youtu.be') ? 'youtube' : 
+       videoData.url.includes('tiktok.com') ? 'tiktok' : 'youtube');
+
+    if (videoType === 'youtube') {
       const embedUrl = this.getOptimizedYouTubeEmbedUrl(videoData.url);
+      videoElement.src = embedUrl;
+    } else if (videoType === 'tiktok') {
+      const embedUrl = this.getOptimizedTikTokEmbedUrl(videoData.url);
       videoElement.src = embedUrl;
     }
   }
@@ -197,6 +229,19 @@ export class VideoPerformanceOptimizer {
     if (match) {
       const videoId = match[1];
       return `https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1&showinfo=0&controls=1&autoplay=0`;
+    }
+    
+    return url;
+  }
+
+  // Get optimized TikTok embed URL
+  getOptimizedTikTokEmbedUrl(url) {
+    const tiktokRegex = /(?:tiktok\.com\/@[^\/]+\/video\/(\d+)|tiktok\.com\/v\/(\d+)|vm\.tiktok\.com\/([A-Za-z0-9]+))/;
+    const match = url.match(tiktokRegex);
+    
+    if (match) {
+      const videoId = match[1] || match[2] || match[3];
+      return `https://www.tiktok.com/embed/v2/${videoId}`;
     }
     
     return url;
@@ -260,19 +305,32 @@ export function optimizeForNetwork(videos) {
 }
 
 // Optimize video quality based on device capabilities
-export function optimizeForDevice(videoUrl) {
+export function optimizeForDevice(videoUrl, videoType = null) {
   if (typeof window === 'undefined') return videoUrl;
+
+  if (!videoType) {
+    if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+      videoType = 'youtube';
+    } else if (videoUrl.includes('tiktok.com')) {
+      videoType = 'tiktok';
+    }
+  }
 
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   const isLowEndDevice = navigator.hardwareConcurrency <= 2;
 
   if (isMobile || isLowEndDevice) {
-    // Use lower quality thumbnails for mobile/low-end devices
-    const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-    const match = videoUrl.match(youtubeRegex);
-    
-    if (match) {
-      return `https://img.youtube.com/vi/${match[1]}/sddefault.jpg`;
+    if (videoType === 'youtube') {
+      // Use lower quality thumbnails for mobile/low-end devices
+      const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+      const match = videoUrl.match(youtubeRegex);
+      
+      if (match) {
+        return `https://img.youtube.com/vi/${match[1]}/sddefault.jpg`;
+      }
+    } else if (videoType === 'tiktok') {
+      // For TikTok, return placeholder for low-end devices
+      return '/placeholder-tiktok-low.jpg';
     }
   }
 

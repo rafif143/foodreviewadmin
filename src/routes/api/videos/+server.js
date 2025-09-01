@@ -30,11 +30,28 @@ export async function GET({ url }) {
 export async function POST({ request }) {
   try {
     const body = await request.json();
-    const { website_id, title, url, description, is_active = true } = body;
+    const { website_id, title, url, description, video_type, is_active = true } = body;
 
     // Validation
     if (!website_id || !title || !url) {
       return json({ error: 'website_id, title, and url are required' }, { status: 400 });
+    }
+
+    // Auto-detect video type if not provided
+    let finalVideoType = video_type;
+    if (!finalVideoType) {
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        finalVideoType = 'youtube';
+      } else if (url.includes('tiktok.com')) {
+        finalVideoType = 'tiktok';
+      } else {
+        finalVideoType = 'youtube'; // default fallback
+      }
+    }
+
+    // Validate video type
+    if (!['youtube', 'tiktok'].includes(finalVideoType)) {
+      return json({ error: 'video_type must be either "youtube" or "tiktok"' }, { status: 400 });
     }
 
     const { data, error } = await supabase
@@ -44,6 +61,7 @@ export async function POST({ request }) {
         title,
         url,
         description,
+        video_type: finalVideoType,
         is_active
       })
       .select()
@@ -63,22 +81,46 @@ export async function PUT({ params, request }) {
   try {
     const { id } = params;
     const body = await request.json();
-    const { title, url, description, is_active } = body;
+    const { title, url, description, video_type, is_active } = body;
 
     // Validation
     if (!title || !url) {
       return json({ error: 'title and url are required' }, { status: 400 });
     }
 
+    // Auto-detect video type if URL is provided but type is not
+    let finalVideoType = video_type;
+    if (url && !finalVideoType) {
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        finalVideoType = 'youtube';
+      } else if (url.includes('tiktok.com')) {
+        finalVideoType = 'tiktok';
+      } else {
+        finalVideoType = 'youtube'; // default fallback
+      }
+    }
+
+    // Validate video type if provided
+    if (finalVideoType && !['youtube', 'tiktok'].includes(finalVideoType)) {
+      return json({ error: 'video_type must be either "youtube" or "tiktok"' }, { status: 400 });
+    }
+
+    const updateData = {
+      title,
+      url,
+      description,
+      is_active,
+      updated_at: new Date().toISOString()
+    };
+
+    // Only update video_type if it's provided
+    if (finalVideoType) {
+      updateData.video_type = finalVideoType;
+    }
+
     const { data, error } = await supabase
       .from('videos')
-      .update({
-        title,
-        url,
-        description,
-        is_active,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
