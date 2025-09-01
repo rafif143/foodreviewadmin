@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { selectedWebsite } from '$lib/stores/websiteStore';
+  import { selectedWebsite, loadWebsiteFromStorage } from '$lib/stores/websiteStore';
   import { supabase } from '$lib/supabase';
   import VideoForm from './VideoForm.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
@@ -15,8 +15,23 @@
   let success = null;
   let selectedFilter = 'all';
   let videoStats = { total: 0, youtube: 0, tiktok: 0 };
+  
+  // Pagination variables
+  let currentPage = 1;
+  let itemsPerPage = 10;
+  let totalPages = 1;
+  let paginatedVideos = [];
 
   onMount(async () => {
+    // Load website from storage if not already loaded
+    if (!$selectedWebsite) {
+      const website = loadWebsiteFromStorage();
+      if (!website) {
+        error = 'Website belum dipilih. Silakan pilih website terlebih dahulu.';
+        return;
+      }
+    }
+    
     await loadVideos();
     await loadStats();
   });
@@ -82,6 +97,24 @@
         const type = video.video_type || detectVideoType(video.url);
         return type === selectedFilter;
       });
+    }
+    
+    // Reset pagination when filtering
+    currentPage = 1;
+    updatePagination();
+  }
+
+  function updatePagination() {
+    totalPages = Math.ceil(videos.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    paginatedVideos = videos.slice(startIndex, endIndex);
+  }
+
+  function goToPage(page) {
+    if (page >= 1 && page <= totalPages) {
+      currentPage = page;
+      updatePagination();
     }
   }
 
@@ -186,6 +219,11 @@
 
   function openVideoInNewTab(url) {
     window.open(url, '_blank');
+  }
+
+  // Update pagination when videos change
+  $: if (videos.length > 0) {
+    updatePagination();
   }
 </script>
 
@@ -403,6 +441,35 @@
   {:else}
     <!-- Video Table -->
     <div class="bg-white rounded-lg shadow overflow-hidden">
+      <!-- Pagination Info -->
+      <div class="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+        <div class="text-sm text-gray-700">
+          Menampilkan {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, videos.length)} dari {videos.length} video
+        </div>
+        <div class="flex items-center space-x-4">
+          <div class="flex items-center space-x-2">
+            <label for="itemsPerPage" class="text-sm text-gray-500">Tampilkan:</label>
+            <select
+              id="itemsPerPage"
+              bind:value={itemsPerPage}
+              on:change={() => {
+                currentPage = 1;
+                updatePagination();
+              }}
+              class="text-sm border border-gray-300 rounded px-2 py-1"
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
+          <div class="text-sm text-gray-500">
+            Halaman {currentPage} dari {totalPages}
+          </div>
+        </div>
+      </div>
+      
       <table class="min-w-full divide-y divide-gray-200">
         <thead class="bg-gray-50">
           <tr>
@@ -414,7 +481,7 @@
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
-          {#each videos as video (video.id)}
+          {#each paginatedVideos as video (video.id)}
             {@const badge = getPlatformBadge(video)}
             <tr class="hover:bg-gray-50">
               <td class="px-6 py-4">
@@ -499,6 +566,51 @@
         </tbody>
       </table>
     </div>
+
+    <!-- Pagination -->
+    {#if totalPages > 1}
+      <div class="mt-6 flex justify-center">
+        <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+          <!-- Previous Button -->
+          <button
+            on:click={() => goToPage(currentPage - 1)}
+            class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={currentPage === 1}
+          >
+            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+            </svg>
+          </button>
+          
+          <!-- Page Numbers -->
+          {#each Array.from({ length: totalPages }, (_, i) => i + 1) as page}
+            {#if page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)}
+              <button
+                on:click={() => goToPage(page)}
+                class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium {currentPage === page ? 'z-10 bg-blue-50 border-blue-500 text-blue-600' : 'text-gray-700 hover:bg-gray-50'}"
+              >
+                {page}
+              </button>
+            {:else if page === currentPage - 2 || page === currentPage + 2}
+              <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
+                ...
+              </span>
+            {/if}
+          {/each}
+          
+          <!-- Next Button -->
+          <button
+            on:click={() => goToPage(currentPage + 1)}
+            class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={currentPage === totalPages}
+          >
+            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+            </svg>
+          </button>
+        </nav>
+      </div>
+    {/if}
   {/if}
 </div>
 

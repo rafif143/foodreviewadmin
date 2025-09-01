@@ -2,7 +2,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { selectedWebsite } from '$lib/stores/websiteStore';
   import { supabase } from '$lib/supabase';
-  import { detectVideoType, isValidVideoUrl } from '$lib/videos.js';
+  import { detectVideoType } from '$lib/videos.js';
 
   export let editingVideo = null;
 
@@ -17,7 +17,6 @@
   };
 
   let loading = false;
-  let error = null;
   let videoPreview = null;
 
   onMount(() => {
@@ -28,39 +27,55 @@
   });
 
   function updateVideoPreview() {
-    if (form.url) {
+    if (form.url && form.url.trim()) {
       const detectedType = detectVideoType(form.url);
       
-      // Auto-update form video_type based on URL if it doesn't match
       if (form.video_type !== detectedType) {
         form.video_type = detectedType;
       }
 
+      // Buat preview yang lebih baik
       if (detectedType === 'youtube') {
-        const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-        const match = form.url.match(youtubeRegex);
-        
-        if (match) {
-          videoPreview = {
-            type: 'youtube',
-            id: match[1],
-            thumbnail: `https://img.youtube.com/vi/${match[1]}/mqdefault.jpg`,
-            embedUrl: `https://www.youtube.com/embed/${match[1]}`
-          };
+        // Coba buat embed URL yang valid untuk YouTube
+        let embedUrl = form.url;
+        if (form.url.includes('youtube.com/watch?v=')) {
+          const videoId = form.url.split('v=')[1]?.split('&')[0];
+          if (videoId) {
+            embedUrl = `https://www.youtube.com/embed/${videoId}`;
+          }
+        } else if (form.url.includes('youtu.be/')) {
+          const videoId = form.url.split('youtu.be/')[1]?.split('?')[0];
+          if (videoId) {
+            embedUrl = `https://www.youtube.com/embed/${videoId}`;
+          }
         }
+        
+        videoPreview = {
+          type: 'youtube',
+          url: form.url,
+          embedUrl: embedUrl,
+          id: embedUrl.includes('/embed/') ? embedUrl.split('/embed/')[1] : null
+        };
       } else if (detectedType === 'tiktok') {
-        const tiktokRegex = /(?:tiktok\.com\/@[^\/]+\/video\/(\d+)|tiktok\.com\/v\/(\d+)|vm\.tiktok\.com\/([A-Za-z0-9]+))/;
-        const match = form.url.match(tiktokRegex);
-        
-        if (match) {
-          const videoId = match[1] || match[2] || match[3];
-          videoPreview = {
-            type: 'tiktok',
-            id: videoId,
-            embedUrl: `https://www.tiktok.com/embed/v2/${videoId}`,
-            originalUrl: form.url
-          };
+        // Coba buat embed URL yang valid untuk TikTok
+        let embedUrl = form.url;
+        if (form.url.includes('tiktok.com/')) {
+          // Extract video ID dari URL TikTok
+          const videoIdMatch = form.url.match(/video\/(\d+)/);
+          if (videoIdMatch) {
+            embedUrl = `https://www.tiktok.com/embed/v2/${videoIdMatch[1]}`;
+          }
         }
+        
+        videoPreview = {
+          type: 'tiktok',
+          url: form.url,
+          embedUrl: embedUrl,
+          originalUrl: form.url,
+          id: embedUrl.includes('/embed/v2/') ? embedUrl.split('/embed/v2/')[1] : null
+        };
+        
+        form.description = 'embed tiktok';
       } else {
         videoPreview = {
           type: 'other',
@@ -72,41 +87,11 @@
     }
   }
 
-  function validateForm() {
-    if (!form.title.trim()) {
-      error = 'Judul video harus diisi';
-      return false;
-    }
-    
-    if (!form.url.trim()) {
-      error = 'URL video harus diisi';
-      return false;
-    }
-
-    // Validate URL and video type
-    if (!isValidVideoUrl(form.url, form.video_type)) {
-      if (form.video_type === 'youtube') {
-        error = 'URL YouTube tidak valid. Gunakan format: https://www.youtube.com/watch?v=... atau https://youtu.be/...';
-      } else if (form.video_type === 'tiktok') {
-        error = 'URL TikTok tidak valid. Gunakan format: https://www.tiktok.com/@username/video/... atau https://vm.tiktok.com/...';
-      } else {
-        error = 'URL video tidak valid';
-      }
-      return false;
-    }
-
-    return true;
-  }
-
   async function handleSubmit() {
-    if (!validateForm()) return;
-
     try {
       loading = true;
-      error = null;
 
       if (!$selectedWebsite) {
-        error = 'Website belum dipilih';
         return;
       }
 
@@ -122,7 +107,6 @@
       let result;
       
       if (editingVideo) {
-        // Update existing video
         const { data, error: updateError } = await supabase
           .from('videos')
           .update(videoData)
@@ -133,7 +117,6 @@
         if (updateError) throw updateError;
         result = data;
       } else {
-        // Create new video
         const { data, error: insertError } = await supabase
           .from('videos')
           .insert(videoData)
@@ -147,7 +130,6 @@
       dispatch('saved', result);
     } catch (err) {
       console.error('Error saving video:', err);
-      error = 'Gagal menyimpan video: ' + err.message;
     } finally {
       loading = false;
     }
@@ -157,15 +139,19 @@
     dispatch('close');
   }
 
+  // Watch for URL changes and update preview
   $: if (form.url) {
     updateVideoPreview();
   }
+  
+  // Watch for video type changes
+  $: if (form.video_type === 'tiktok') {
+    form.description = 'embed tiktok';
+  }
 </script>
 
-<!-- Modal Overlay -->
 <div class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
   <div class="relative top-20 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-lg bg-white">
-    <!-- Modal Header -->
     <div class="flex justify-between items-center mb-6">
       <h3 class="text-xl font-semibold text-gray-900">
         {editingVideo ? 'Edit Video' : 'Tambah Video Baru'}
@@ -180,27 +166,10 @@
       </button>
     </div>
 
-    <!-- Error Message -->
-    {#if error}
-      <div class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-        <div class="flex">
-          <div class="flex-shrink-0">
-            <svg class="h-5 w-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div class="ml-3">
-            <p class="text-sm text-red-800">{error}</p>
-          </div>
-        </div>
-      </div>
-    {/if}
-
     <form on:submit|preventDefault={handleSubmit} class="space-y-6">
-      <!-- Title -->
       <div>
         <label for="title" class="block text-sm font-medium text-gray-700 mb-2">
-          Judul Video <span class="text-red-500">*</span>
+          Judul Video
         </label>
         <input
           id="title"
@@ -208,20 +177,22 @@
           bind:value={form.title}
           class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           placeholder="Masukkan judul video"
-          required
         />
       </div>
 
-      <!-- Video Type -->
       <div>
         <label for="video_type" class="block text-sm font-medium text-gray-700 mb-2">
-          Platform Video <span class="text-red-500">*</span>
+          Platform Video
         </label>
         <select
           id="video_type"
           bind:value={form.video_type}
+          on:change={() => {
+            if (form.video_type === 'tiktok') {
+              form.description = 'embed tiktok';
+            }
+          }}
           class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          required
         >
           <option value="youtube">YouTube</option>
           <option value="tiktok">TikTok</option>
@@ -231,45 +202,49 @@
         </p>
       </div>
 
-      <!-- URL -->
       <div>
         <label for="url" class="block text-sm font-medium text-gray-700 mb-2">
-          URL Video <span class="text-red-500">*</span>
+          URL Video
         </label>
         <input
           id="url"
-          type="url"
+          type="text"
           bind:value={form.url}
           class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          placeholder={form.video_type === 'youtube' ? 'https://www.youtube.com/watch?v=...' : 'https://www.tiktok.com/@username/video/...'}
-          required
+          placeholder="Masukkan URL atau link video apapun"
         />
         <p class="mt-1 text-sm text-gray-500">
-          {#if form.video_type === 'youtube'}
-            Format YouTube: https://www.youtube.com/watch?v=VIDEO_ID atau https://youtu.be/VIDEO_ID
-          {:else if form.video_type === 'tiktok'}
-            Format TikTok: https://www.tiktok.com/@username/video/VIDEO_ID atau https://vm.tiktok.com/SHORT_ID
-          {:else}
-            Masukkan URL video yang valid
-          {/if}
+          Bisa input URL YouTube, TikTok, atau platform video lainnya
         </p>
       </div>
 
-      <!-- Description -->
-      <div>
-        <label for="description" class="block text-sm font-medium text-gray-700 mb-2">
-          Deskripsi
-        </label>
-        <textarea
-          id="description"
-          bind:value={form.description}
-          rows="4"
-          class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          placeholder="Masukkan deskripsi video (opsional)"
-        ></textarea>
-      </div>
+      {#if form.video_type === 'tiktok'}
+        <div>
+          <label for="description" class="block text-sm font-medium text-gray-700 mb-2">
+            Deskripsi
+          </label>
+          <div class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-500">
+            embed tiktok
+          </div>
+          <p class="mt-1 text-sm text-gray-500">
+            Untuk video TikTok, deskripsi otomatis diset ke "embed tiktok"
+          </p>
+        </div>
+      {:else}
+        <div>
+          <label for="description" class="block text-sm font-medium text-gray-700 mb-2">
+            Deskripsi
+          </label>
+          <textarea
+            id="description"
+            bind:value={form.description}
+            rows="4"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="Masukkan deskripsi video (opsional)"
+          ></textarea>
+        </div>
+      {/if}
 
-      <!-- Active Status -->
       <div class="flex items-center">
         <input
           id="is_active"
@@ -282,7 +257,8 @@
         </label>
       </div>
 
-      <!-- Video Preview -->
+      
+
       {#if videoPreview}
         <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
           <h4 class="text-sm font-medium text-gray-700 mb-3">Preview Video</h4>
@@ -304,7 +280,7 @@
                   <path d="M8 5v14l11-7z"/>
                 </svg>
               </div>
-              YouTube Video ID: {videoPreview.id}
+              YouTube Video {videoPreview.id ? `(ID: ${videoPreview.id})` : ''}
             </div>
           {:else if videoPreview.type === 'tiktok'}
             <div class="aspect-[9/16] max-h-96 mx-auto bg-black rounded-lg overflow-hidden">
@@ -323,7 +299,7 @@
                   <path d="M19.321 5.562a5.124 5.124 0 01-.443-.258 6.228 6.228 0 01-1.137-.966c-.849-.849-1.302-2.003-1.302-3.338h-3.517v14.717c0 2.748-2.156 4.99-4.823 4.99a4.831 4.831 0 01-4.823-4.99c0-2.748 2.156-4.99 4.823-4.99.267 0 .53.023.787.067V7.257c-.254-.036-.513-.054-.787-.054C3.651 7.203 0 10.998 0 15.717S3.651 24.23 8.099 24.23s8.099-3.795 8.099-8.513V8.434a9.637 9.637 0 005.123 1.474v-3.517c-.711 0-1.377-.192-1.95-.532-.287-.17-.547-.375-.772-.616-.225-.24-.413-.515-.556-.821z"/>
                 </svg>
               </div>
-              TikTok Video ID: {videoPreview.id}
+              TikTok Video {videoPreview.id ? `(ID: ${videoPreview.id})` : ''}
             </div>
           {:else}
             <div class="aspect-video bg-gray-200 rounded-lg flex items-center justify-center">
@@ -339,7 +315,6 @@
         </div>
       {/if}
 
-      <!-- Form Actions -->
       <div class="flex justify-end space-x-3 pt-6 border-t border-gray-200">
         <button
           type="button"
