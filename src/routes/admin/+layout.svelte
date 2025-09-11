@@ -269,6 +269,17 @@
                  </svg>
                  Video Section
                </a>
+
+               <a
+                 href="/admin/ads-google"
+                 class="group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors duration-200 {$page.url.pathname.startsWith('/admin/ads-google') ? 'text-blue-700 bg-blue-50' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'}"
+               >
+                 <svg class="w-5 h-5 mr-3 text-gray-400 group-hover:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9 0 0120.488 9z" />
+                 </svg>
+                 Google Ads
+               </a>
              </div>
 
              <!-- Divider -->
