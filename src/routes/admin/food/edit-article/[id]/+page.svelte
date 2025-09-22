@@ -6,7 +6,9 @@
   import { selectedWebsite, loadWebsiteFromStorage } from '$lib/stores/websiteStore';
   import ContentBlockEditor from '$lib/components/ContentBlockEditor.svelte';
   import ContentBlockPreview from '$lib/components/ContentBlockPreview.svelte';
+  import ImageUploader from '$lib/components/ImageUploader.svelte';
   import { parseArticleContent, stringifyContentBlocks } from '$lib/utils/contentParser.js';
+  import { cleanupUnusedImages, extractFormImageUrls, removeTempImage } from '$lib/utils/imageCleanup.js';
 
   let isLoading = false;
   let errorMessage = '';
@@ -133,6 +135,14 @@
       if (!formData.author.trim()) throw new Error('Penulis artikel harus diisi');
       if (!formData.contentBlocks || formData.contentBlocks.length === 0) throw new Error('Konten artikel harus diisi');
 
+      // Cleanup unused images before updating
+      try {
+        await cleanupUnusedImages(article, formData);
+      } catch (cleanupError) {
+        console.warn('Error cleaning up unused images:', cleanupError);
+        // Continue with update even if cleanup fails
+      }
+
       const { data: existingArticle } = await supabase
         .from('articles')
         .select('id')
@@ -168,6 +178,10 @@
         .eq('id', $page.params.id);
 
       if (error) throw error;
+
+      // Mark current images as permanent (remove from temp tracking)
+      const currentImageUrls = extractFormImageUrls(formData);
+      currentImageUrls.forEach(url => removeTempImage(url));
 
       successMessage = 'Artikel berhasil diperbarui!';
       // Tidak ada redirect otomatis - user bisa pilih mau edit lagi atau kembali ke list
@@ -334,33 +348,40 @@
       <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
         <h2 class="text-lg font-medium text-gray-900 mb-6">Gambar Artikel</h2>
         
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div>
-                <label for="thumbnail_image" class="block text-sm font-medium text-gray-700 mb-2">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <!-- Thumbnail Image -->
+          <div>
+            <div class="block text-sm font-medium text-gray-700 mb-3">
               Thumbnail Image <span class="text-red-500">*</span>
-                </label>
-                <input
-              id="thumbnail_image"
-                  type="url"
-                  bind:value={formData.thumbnail_image}
-              required
-                  placeholder="https://example.com/image.jpg"
-              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
+            </div>
+            <ImageUploader
+              bind:imageUrl={formData.thumbnail_image}
+              bucketName="article-images"
+              placeholder="Upload thumbnail artikel"
+              on:change={(e) => formData.thumbnail_image = e.detail.url}
+            />
+            <p class="mt-2 text-xs text-gray-500">
+              Gambar thumbnail yang akan ditampilkan di preview artikel. 
+              <br>Maksimal 10MB, format: JPG, PNG, WebP
+            </p>
+          </div>
 
-              <div>
-                <label for="main_image" class="block text-sm font-medium text-gray-700 mb-2">
-                  Main Image
-                </label>
-                <input
-              id="main_image"
-                  type="url"
-                  bind:value={formData.main_image}
-              placeholder="https://example.com/main-image.jpg"
-              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
+          <!-- Main Image -->
+          <div>
+            <div class="block text-sm font-medium text-gray-700 mb-3">
+              Main Image
+            </div>
+            <ImageUploader
+              bind:imageUrl={formData.main_image}
+              bucketName="article-images"
+              placeholder="Upload gambar utama artikel"
+              on:change={(e) => formData.main_image = e.detail.url}
+            />
+            <p class="mt-2 text-xs text-gray-500">
+              Gambar utama artikel (opsional). Akan ditampilkan di bagian atas artikel.
+              <br>Maksimal 10MB, format: JPG, PNG, WebP
+            </p>
+          </div>
         </div>
       </div>
 
@@ -381,9 +402,9 @@
           </div>
 
         <div class="mb-6">
-          <label class="block text-sm font-medium text-gray-700 mb-3">
+          <div class="block text-sm font-medium text-gray-700 mb-3">
             Konten Artikel <span class="text-red-500">*</span>
-          </label>
+          </div>
           <ContentBlockEditor 
             contentBlocks={formData.contentBlocks}
             onChange={handleContentBlocksChange}
@@ -407,7 +428,7 @@
         
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-3">Tags</label>
+            <div class="block text-sm font-medium text-gray-700 mb-3">Tags</div>
             {#if availableTags.length > 0}
               <div class="flex flex-wrap gap-2">
                 {#each availableTags as tag}
@@ -427,7 +448,7 @@
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-3">Labels</label>
+            <div class="block text-sm font-medium text-gray-700 mb-3">Labels</div>
             {#if availableLabels.length > 0}
               <div class="flex flex-wrap gap-2">
                   {#each availableLabels as label}

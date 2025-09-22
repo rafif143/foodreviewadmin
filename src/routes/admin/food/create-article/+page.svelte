@@ -1,11 +1,13 @@
 <script>
   import { supabase } from '$lib/supabase';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { selectedWebsite, loadWebsiteFromStorage } from '$lib/stores/websiteStore';
   import ContentBlockEditor from '$lib/components/ContentBlockEditor.svelte';
   import ContentBlockPreview from '$lib/components/ContentBlockPreview.svelte';
+  import ImageUploader from '$lib/components/ImageUploader.svelte';
   import { stringifyContentBlocks } from '$lib/utils/contentParser.js';
+  import { cleanupTempImages, extractFormImageUrls, removeTempImage } from '$lib/utils/imageCleanup.js';
 
   // Data
   let isLoading = false;
@@ -55,6 +57,32 @@
     // Load available tags and labels from database
     await loadAvailableTagsAndLabels();
   });
+
+  onDestroy(() => {
+    // Cleanup temporary images when leaving page
+    handlePageLeave();
+  });
+
+  // Handle page leave (cleanup temp images)
+  async function handlePageLeave() {
+    try {
+      const currentImageUrls = extractFormImageUrls(formData);
+      await cleanupTempImages(currentImageUrls);
+    } catch (error) {
+      console.warn('Error cleaning up temp images on page leave:', error);
+    }
+  }
+
+  // Handle beforeunload for browser close/refresh
+  function handleBeforeUnload(event) {
+    // Cleanup temp images (fire and forget)
+    handlePageLeave();
+  }
+
+  // Add beforeunload listener
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', handleBeforeUnload);
+  }
 
   // Load available tags and labels from database
   async function loadAvailableTagsAndLabels() {
@@ -175,6 +203,10 @@
       if (error) throw error;
 
       successMessage = 'Artikel berhasil dibuat!';
+      
+      // Mark saved images as permanent (remove from temp tracking)
+      const savedImageUrls = extractFormImageUrls(formData);
+      savedImageUrls.forEach(url => removeTempImage(url));
       
       // Reset form
       formData = {
@@ -394,36 +426,39 @@
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
       <h2 class="text-lg font-medium text-gray-900 mb-6">Gambar Artikel</h2>
       
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <!-- Thumbnail Image -->
         <div>
-          <label for="thumbnail_image" class="block text-sm font-medium text-gray-700 mb-2">
+          <div class="block text-sm font-medium text-gray-700 mb-3">
             Thumbnail Image <span class="text-red-500">*</span>
-          </label>
-          <input
-            id="thumbnail_image"
-            type="url"
-            bind:value={formData.thumbnail_image}
-            required
-            placeholder="https://example.com/image.jpg"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          </div>
+          <ImageUploader
+            bind:imageUrl={formData.thumbnail_image}
+            bucketName="article-images"
+            placeholder="Upload thumbnail artikel"
+            on:change={(e) => formData.thumbnail_image = e.detail.url}
           />
-          <p class="mt-1 text-xs text-gray-500">URL gambar thumbnail artikel</p>
+          <p class="mt-2 text-xs text-gray-500">
+            Gambar thumbnail yang akan ditampilkan di preview artikel. 
+            <br>Maksimal 10MB, format: JPG, PNG, WebP
+          </p>
         </div>
 
         <!-- Main Image -->
         <div>
-          <label for="main_image" class="block text-sm font-medium text-gray-700 mb-2">
+          <div class="block text-sm font-medium text-gray-700 mb-3">
             Main Image
-          </label>
-          <input
-            id="main_image"
-            type="url"
-            bind:value={formData.main_image}
-            placeholder="https://example.com/main-image.jpg"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          </div>
+          <ImageUploader
+            bind:imageUrl={formData.main_image}
+            bucketName="article-images"
+            placeholder="Upload gambar utama artikel"
+            on:change={(e) => formData.main_image = e.detail.url}
           />
-          <p class="mt-1 text-xs text-gray-500">URL gambar utama artikel (opsional)</p>
+          <p class="mt-2 text-xs text-gray-500">
+            Gambar utama artikel (opsional). Akan ditampilkan di bagian atas artikel.
+            <br>Maksimal 10MB, format: JPG, PNG, WebP
+          </p>
         </div>
       </div>
     </div>
@@ -452,9 +487,9 @@
 
       <!-- Content Block Editor -->
       <div class="mb-6">
-        <label class="block text-sm font-medium text-gray-700 mb-3">
+        <div class="block text-sm font-medium text-gray-700 mb-3">
           Konten Artikel <span class="text-red-500">*</span>
-        </label>
+        </div>
         <ContentBlockEditor 
           contentBlocks={formData.contentBlocks}
           onChange={handleContentBlocksChange}
@@ -483,7 +518,7 @@
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Tags -->
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-3">Tags</label>
+          <div class="block text-sm font-medium text-gray-700 mb-3">Tags</div>
           
           {#if isLoadingTagsLabels}
             <div class="flex items-center gap-2 text-sm text-gray-500">
@@ -516,7 +551,7 @@
 
         <!-- Labels -->
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-3">Labels</label>
+          <div class="block text-sm font-medium text-gray-700 mb-3">Labels</div>
           
           {#if isLoadingTagsLabels}
             <div class="flex items-center gap-2 text-sm text-gray-500">

@@ -82,8 +82,16 @@
   }
   
   .content-preview :global(.prose p) {
-    margin: 1em 0;
-    line-height: 1.6;
+    margin: 0.25em 0;
+    line-height: 1.4;
+  }
+  
+  .content-preview :global(.prose p:first-child) {
+    margin-top: 0;
+  }
+
+  .content-preview :global(.prose p:last-child) {
+    margin-bottom: 0;
   }
   
   .content-preview :global(.prose ul) {

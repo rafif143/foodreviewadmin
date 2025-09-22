@@ -380,6 +380,19 @@
     margin: 1em 0;
   }
 
+  :global(.ProseMirror p) {
+    margin: 0.25em 0;
+    line-height: 1.4;
+  }
+
+  :global(.ProseMirror p:first-child) {
+    margin-top: 0;
+  }
+
+  :global(.ProseMirror p:last-child) {
+    margin-bottom: 0;
+  }
+
   :global(.ProseMirror ul) {
     list-style-type: disc;
     margin: 1em 0;

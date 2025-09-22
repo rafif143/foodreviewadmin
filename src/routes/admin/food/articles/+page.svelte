@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { selectedWebsite, loadWebsiteFromStorage } from '$lib/stores/websiteStore';
+  import { deleteArticleImages } from '$lib/utils/imageCleanup.js';
 
   // Data
   let articles = [];
@@ -105,9 +106,28 @@
   }
 
   async function deleteArticle(articleId) {
-    if (!confirm('Apakah Anda yakin ingin menghapus artikel ini?')) return;
+    if (!confirm('Apakah Anda yakin ingin menghapus artikel ini? Semua gambar terkait juga akan dihapus.')) return;
 
     try {
+      // First, get the article data to extract image URLs
+      const articleToDelete = articles.find(article => article.id === articleId);
+      
+      if (articleToDelete) {
+        // Delete associated images from storage
+        try {
+          const deleteResult = await deleteArticleImages(articleToDelete);
+          console.log(`Deleted ${deleteResult.deleted} images, failed: ${deleteResult.failed}`);
+          
+          if (deleteResult.failed > 0) {
+            console.warn('Some images failed to delete:', deleteResult.errors);
+          }
+        } catch (imageError) {
+          console.warn('Error deleting article images:', imageError);
+          // Continue with article deletion even if image cleanup fails
+        }
+      }
+
+      // Delete the article from database
       const { error } = await supabase
         .from('articles')
         .delete()
